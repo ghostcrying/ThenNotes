@@ -4,6 +4,10 @@
 
 ## Swift
 
+##### Mark
+
+- https://github.com/ming1016/SwiftPamphletApp
+
 ##### Menu
 
 - [fan-menu](https://github.com/exyte/fan-menu.git)
@@ -45,6 +49,13 @@
 
 - [Grid](https://github.com/exyte/Grid.git)
 - [CollectionViewPagingLayout](https://github.com/amirdew/CollectionViewPagingLayout.git)
+- [Tokamak](https://github.com/TokamakUI/Tokamak.git)
+- [Setting](https://github.com/aheze/Setting)
+  - 比较优秀的Apple风格设置三方库, 适配iOS15.0 +, 接入项目中, 需要进行版本适配到iOS 13.0
+
+- [pure-swift-ui](https://github.com/CodeSlicing/pure-swift-ui)
+  - 进行了比较多的基础View扩展, 便于使用
+
 
 ##### Color
 
@@ -77,6 +88,8 @@
 ##### Text
 
 - [AnimateText](https://github.com/jasudev/AnimateText.git)
+  - 文字动画效果
+
 
 ##### Pop
 
