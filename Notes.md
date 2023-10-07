@@ -40,8 +40,14 @@ fno-objc-arc
 #### Swift版本
 
 ```
-参考链接: https://www.huntsbot.com/qa/om3O
+参考链接:
+- https://www.huntsbot.com/qa/om3O
+- https://developer.apple.com/support/xcode/
 
+Xcode 15     : Swift version 5.9
+Xcode 14.3.1 : Swift version 5.8.1
+Xcode 14.3   : Swift version 5.8
+Xcode 14.0   : Swift version 5.7
 Xcode 13.3   : Swift version 5.6
 Xcode 13.2   : Swift version 5.5.2
 Xcode 12.5   : Swift version 5.4.2

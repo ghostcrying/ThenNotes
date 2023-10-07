@@ -7,7 +7,7 @@
 - 选择xcframeworks
 
   ```
-  carthage update --use-xcframeworks 
+  carthage update --use-xcframeworks
   ```
 
 - 选择平台
