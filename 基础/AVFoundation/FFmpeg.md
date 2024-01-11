@@ -21,6 +21,16 @@
 
 
 
+## 编译
+
+> 建议下载源码之后, 手动编译
+>
+> [官网地址](https://ffmpeg.org/)
+>
+> https://github.com/kewlbear/FFmpeg-iOS-Support
+>
+> 
+
 ## AVFrame
 
 ### 1. 简介
