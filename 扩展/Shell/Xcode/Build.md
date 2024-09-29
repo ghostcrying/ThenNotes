@@ -24,17 +24,28 @@ IPAPath: 最终输出的ipa路径
 - 清理
 
   ```
-  xcodebuild clean -project $XcodeProjPath \
-                   -scheme $Scheme
+  xcodebuild clean \
+             -project $XcodeProjPath \
+             -scheme $Scheme
   ```
 
 - 构建
 
+  > `Apple M1`芯片 自动打包问题解决方案 `Xcode 12 iOS` 打包失败
+  >
+  > 报错提示: `**Provisioning profile "iOS Team Provisioning Profile" doesn't include the currently selected device "xxx's MacBook Pro**`
+  >
+  > 解决: `archive`后新增参数`-destination 'generic/platform=iOS'`
+  >
+  > [参考](https://www.jianshu.com/p/6127509147de)
+
   ```
-  xcodebuild archive -project $XcodeProjPath \
-                     -scheme $Scheme \
-                     -archivePath $ArchivePath \
-                     -configuration Release
+  xcodebuild archive \
+             -project $XcodeProjPath \
+             -scheme $Scheme \
+             -archivePath $ArchivePath \
+             -configuration Release \
+             -destination 'generic/platform=iOS'
   ```
 
 - 导出
@@ -42,21 +53,23 @@ IPAPath: 最终输出的ipa路径
   - 测试
 
     ```
-    xcodebuild -exportArchive -archivePath $ArchivePath \
-                              -exportPath "$PRO_EXPORT" \
-                              -exportOptionsPlist "$WORKSPACE/Cer/development/ExportOptions.plist" \
-                              -configuration Release \
-                              -allowProvisioningUpdates true
+    xcodebuild -exportArchive \
+               -archivePath $ArchivePath \
+               -exportPath "$PRO_EXPORT" \
+               -exportOptionsPlist "$WORKSPACE/Cer/development/ExportOptions.plist" \
+               -configuration Release \
+               -allowProvisioningUpdates true
     ```
 
   - 线上
 
     ```
-    xcodebuild -exportArchive -archivePath "$PRO_EXPORT/$PRO_NAME.xcarchive" \
-                              -exportPath "$PRO_EXPORT" \
-                              -exportOptionsPlist "$WORKSPACE/Cer/appstore/ExportOptions.plist" \
-                              -configuration Release \
-                              -allowProvisioningUpdates true
+    xcodebuild -exportArchive \
+               -archivePath "$PRO_EXPORT/$PRO_NAME.xcarchive" \
+               -exportPath "$PRO_EXPORT" \
+               -exportOptionsPlist "$WORKSPACE/Cer/appstore/ExportOptions.plist" \
+               -configuration Release \
+               -allowProvisioningUpdates true
     #校验
     xcrun altool --validate-app -f $IPAPath -t ios \
                  --apiKey $TESTFLIGHT_API_KEY \
@@ -68,7 +81,7 @@ IPAPath: 最终输出的ipa路径
                  --apiIssuer $TESTFLIGHT_API_ISSUER \
                  --verbose
     ```
-
+    
     
 
 ##### 提示
