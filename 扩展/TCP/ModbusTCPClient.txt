@@ -1,0 +1,185 @@
+import Foundation
+
+class ModbusTCPClient {
+    private var inputStream: InputStream?
+    private var outputStream: OutputStream?
+    private var host: String
+    private var port: Int
+    private var transactionId: UInt16 = 0
+
+    init(host: String, port: Int) {
+        self.host = host
+        self.port = port
+    }
+
+    // 连接到 Modbus TCP 服务器
+    func connect() -> Bool {
+        var input: InputStream?
+        var output: OutputStream?
+
+        // 创建 TCP 流
+        Stream.getStreamsToHost(withName: host, port: port, inputStream: &input, outputStream: &output)
+
+        guard let inputStream = input, let outputStream = output else {
+            print("Failed to create streams")
+            return false
+        }
+
+        self.inputStream = inputStream
+        self.outputStream = outputStream
+
+        // 打开流
+        inputStream.open()
+        outputStream.open()
+
+        // 检查流是否成功打开
+        if inputStream.streamStatus != .open || outputStream.streamStatus != .open {
+            print("Failed to open streams")
+            return false
+        }
+
+        print("Connected to \(host):\(port)")
+        return true
+    }
+
+    // 断开连接
+    func disconnect() {
+        inputStream?.close()
+        outputStream?.close()
+        inputStream = nil
+        outputStream = nil
+        print("Disconnected from \(host):\(port)")
+    }
+
+    // 构造 Modbus TCP ADU（Application Data Unit）
+    private func buildModbusRequest(functionCode: UInt8, startingAddress: UInt16, quantity: UInt16) -> Data {
+        transactionId = transactionId &+ 1 // 增加事务 ID
+        let protocolId: UInt16 = 0 // Modbus TCP 协议 ID
+        let unitId: UInt8 = 1 // 单元标识符（从站地址）
+
+        // MBAP Header (7 bytes)
+        var request = Data()
+        // Transaction ID (2 bytes)
+        request.append(contentsOf: withUnsafeBytes(of: transactionId.bigEndian) { Array($0) })
+        // Protocol ID (2 bytes)
+        request.append(contentsOf: withUnsafeBytes(of: protocolId.bigEndian) { Array($0) })
+        // Length (2 bytes) = PDU 长度 + Unit ID 长度
+        let length: UInt16 = 6 // PDU: Function Code (1) + Starting Address (2) + Quantity (2) + Unit ID (1)
+        request.append(contentsOf: withUnsafeBytes(of: length.bigEndian) { Array($0) })
+        // Unit ID (1 byte)
+        request.append(unitId)
+
+        // PDU (Protocol Data Unit)
+        // Function Code (1 byte)
+        request.append(functionCode)
+        // Starting Address (2 bytes)
+        request.append(contentsOf: withUnsafeBytes(of: startingAddress.bigEndian) { Array($0) })
+        // Quantity of Registers (2 bytes)
+        request.append(contentsOf: withUnsafeBytes(of: quantity.bigEndian) { Array($0) })
+
+        return request
+    }
+
+    // 发送请求并接收响应
+    private func sendRequest(_ request: Data) -> Data? {
+        guard let outputStream = outputStream, let inputStream = inputStream else {
+            print("Streams are not initialized")
+            return nil
+        }
+
+        // 发送请求
+        let requestBytes = [UInt8](request)
+        let bytesWritten = requestBytes.withUnsafeBufferPointer { buffer in
+            outputStream.write(buffer.baseAddress!, maxLength: buffer.count)
+        }
+
+        if bytesWritten < 0 {
+            print("Failed to send request: \(String(describing: outputStream.streamError))")
+            return nil
+        }
+
+        // 接收响应
+        var responseBuffer = [UInt8](repeating: 0, count: 256)
+        let bytesRead = responseBuffer.withUnsafeMutableBufferPointer { buffer in
+            inputStream.read(buffer.baseAddress!, maxLength: buffer.count)
+        }
+
+        if bytesRead < 0 {
+            print("Failed to read response: \(String(describing: inputStream.streamError))")
+            return nil
+        }
+
+        return Data(responseBuffer[0..<bytesRead])
+    }
+
+    // 解析响应
+    private func parseResponse(_ response: Data, expectedQuantity: UInt16) -> [UInt16]? {
+        let bytes = [UInt8](response)
+        guard bytes.count >= 9 else {
+            print("Response too short")
+            return nil
+        }
+
+        // 检查 MBAP Header
+        let receivedTransactionId = UInt16(bytes[0]) << 8 | UInt16(bytes[1])
+        if receivedTransactionId != transactionId {
+            print("Transaction ID mismatch")
+            return nil
+        }
+
+        let length = UInt16(bytes[4]) << 8 | UInt16(bytes[5])
+        let unitId = bytes[6]
+        let functionCode = bytes[7]
+
+        // 检查功能码
+        if functionCode & 0x80 != 0 {
+            print("Modbus exception: \(bytes[8])")
+            return nil
+        }
+
+        // 检查数据长度
+        let byteCount = Int(bytes[8])
+        let expectedByteCount = Int(expectedQuantity) * 2
+        if byteCount != expectedByteCount {
+            print("Unexpected byte count: \(byteCount), expected: \(expectedByteCount)")
+            return nil
+        }
+
+        // 提取寄存器值
+        var values: [UInt16] = []
+        for i in 0..<byteCount/2 {
+            let index = 9 + i * 2
+            let value = UInt16(bytes[index]) << 8 | UInt16(bytes[index + 1])
+            values.append(value)
+        }
+
+        return values
+    }
+
+    // 读取保持寄存器（功能码 03）
+    func readHoldingRegisters(startingAddress: UInt16, quantity: UInt16) -> [UInt16]? {
+        // 构造请求 (功能码 03)
+        let request = buildModbusRequest(functionCode: 0x03, startingAddress: startingAddress, quantity: quantity)
+
+        // 发送请求并接收响应
+        guard let response = sendRequest(request) else {
+            return nil
+        }
+
+        // 解析响应
+        return parseResponse(response, expectedQuantity: quantity)
+    }
+}
+
+// 测试代码
+let client = ModbusTCPClient(host: "192.168.1.100", port: 502) // 替换为实际的 Modbus TCP 服务器地址和端口
+if client.connect() {
+    if let registers = client.readHoldingRegisters(startingAddress: 0, quantity: 2) {
+        print("Registers: \(registers)")
+    } else {
+        print("Failed to read registers")
+    }
+    client.disconnect()
+} else {
+    print("Failed to connect")
+}

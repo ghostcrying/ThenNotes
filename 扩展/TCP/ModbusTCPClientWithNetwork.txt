@@ -1,0 +1,191 @@
+import Network
+import Foundation
+
+class ModbusTCPClient {
+    private let host: NWEndpoint.Host
+    private let port: NWEndpoint.Port
+    private var connection: NWConnection?
+    private var transactionId: UInt16 = 0
+    private let queue = DispatchQueue(label: "ModbusTCPClientQueue")
+
+    init(host: String, port: UInt16) {
+        self.host = NWEndpoint.Host(host)
+        self.port = NWEndpoint.Port(port) ?? 502
+    }
+
+    // 连接到 Modbus TCP 服务器
+    func connect(completion: @escaping (Bool) -> Void) {
+        connection = NWConnection(host: host, port: port, using: .tcp)
+
+        guard let connection = connection else {
+            completion(false)
+            return
+        }
+
+        connection.stateUpdateHandler = { [weak self] state in
+            switch state {
+            case .ready:
+                print("Connected to \(self?.host ?? "unknown host"):\(self?.port ?? 0)")
+                completion(true)
+            case .failed(let error):
+                print("Connection failed: \(error)")
+                completion(false)
+            case .cancelled:
+                print("Connection cancelled")
+            default:
+                break
+            }
+        }
+
+        connection.start(queue: queue)
+    }
+
+    // 断开连接
+    func disconnect() {
+        connection?.cancel()
+        connection = nil
+        print("Disconnected from \(host):\(port)")
+    }
+
+    // 构造 Modbus TCP ADU（Application Data Unit）
+    private func buildModbusRequest(functionCode: UInt8, startingAddress: UInt16, quantity: UInt16) -> Data {
+        transactionId = transactionId &+ 1 // 增加事务 ID
+        let protocolId: UInt16 = 0 // Modbus TCP 协议 ID
+        let unitId: UInt8 = 1 // 单元标识符（从站地址）
+
+        // MBAP Header (7 bytes)
+        var request = Data()
+        // Transaction ID (2 bytes)
+        request.append(contentsOf: withUnsafeBytes(of: transactionId.bigEndian) { Array($0) })
+        // Protocol ID (2 bytes)
+        request.append(contentsOf: withUnsafeBytes(of: protocolId.bigEndian) { Array($0) })
+        // Length (2 bytes) = PDU 长度 + Unit ID 长度
+        let length: UInt16 = 6 // PDU: Function Code (1) + Starting Address (2) + Quantity (2) + Unit ID (1)
+        request.append(contentsOf: withUnsafeBytes(of: length.bigEndian) { Array($0) })
+        // Unit ID (1 byte)
+        request.append(unitId)
+
+        // PDU (Protocol Data Unit)
+        // Function Code (1 byte)
+        request.append(functionCode)
+        // Starting Address (2 bytes)
+        request.append(contentsOf: withUnsafeBytes(of: startingAddress.bigEndian) { Array($0) })
+        // Quantity of Registers (2 bytes)
+        request.append(contentsOf: withUnsafeBytes(of: quantity.bigEndian) { Array($0) })
+
+        return request
+    }
+
+    // 发送请求并接收响应（异步）
+    private func sendRequest(_ request: Data, completion: @escaping (Data?) -> Void) {
+        guard let connection = connection else {
+            print("Connection not initialized")
+            completion(nil)
+            return
+        }
+
+        // 发送请求
+        connection.send(content: request, completion: .contentProcessed { error in
+            if let error = error {
+                print("Failed to send request: \(error)")
+                completion(nil)
+                return
+            }
+
+            // 接收响应
+            connection.receive(minimumIncompleteLength: 9, maximumLength: 256) { data, _, isComplete, error in
+                if let error = error {
+                    print("Failed to receive response: \(error)")
+                    completion(nil)
+                    return
+                }
+
+                if !isComplete, let data = data {
+                    completion(data)
+                } else {
+                    print("Connection closed or no data received")
+                    completion(nil)
+                }
+            }
+        })
+    }
+
+    // 解析响应
+    private func parseResponse(_ response: Data, expectedQuantity: UInt16) -> [UInt16]? {
+        let bytes = [UInt8](response)
+        guard bytes.count >= 9 else {
+            print("Response too short")
+            return nil
+        }
+
+        // 检查 MBAP Header
+        let receivedTransactionId = UInt16(bytes[0]) << 8 | UInt16(bytes[1])
+        if receivedTransactionId != transactionId {
+            print("Transaction ID mismatch")
+            return nil
+        }
+
+        let length = UInt16(bytes[4]) << 8 | UInt16(bytes[5])
+        let unitId = bytes[6]
+        let functionCode = bytes[7]
+
+        // 检查功能码
+        if functionCode & 0x80 != 0 {
+            print("Modbus exception: \(bytes[8])")
+            return nil
+        }
+
+        // 检查数据长度
+        let byteCount = Int(bytes[8])
+        let expectedByteCount = Int(expectedQuantity) * 2
+        if byteCount != expectedByteCount {
+            print("Unexpected byte count: \(byteCount), expected: \(expectedByteCount)")
+            return nil
+        }
+
+        // 提取寄存器值
+        var values: [UInt16] = []
+        for i in 0..<byteCount/2 {
+            let index = 9 + i * 2
+            let value = UInt16(bytes[index]) << 8 | UInt16(bytes[index + 1])
+            values.append(value)
+        }
+
+        return values
+    }
+
+    // 读取保持寄存器（功能码 03，异步）
+    func readHoldingRegisters(startingAddress: UInt16, quantity: UInt16, completion: @escaping ([UInt16]?) -> Void) {
+        let request = buildModbusRequest(functionCode: 0x03, startingAddress: startingAddress, quantity: quantity)
+
+        sendRequest(request) { response in
+            guard let response = response else {
+                completion(nil)
+                return
+            }
+
+            let values = self.parseResponse(response, expectedQuantity: quantity)
+            completion(values)
+        }
+    }
+}
+
+// 测试代码
+let client = ModbusTCPClient(host: "192.168.1.100", port: 502) // 替换为实际的 Modbus TCP 服务器地址和端口
+client.connect { success in
+    if success {
+        client.readHoldingRegisters(startingAddress: 0, quantity: 2) { registers in
+            if let registers = registers {
+                print("Registers: \(registers)")
+            } else {
+                print("Failed to read registers")
+            }
+            client.disconnect()
+        }
+    } else {
+        print("Failed to connect")
+    }
+}
+
+// 保持程序运行以完成异步操作
+dispatchMain()
